@@ -46,6 +46,9 @@
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QUrl>
+#include <QProcess>
+#include <QFileInfo>
+#include <QCoreApplication>
 #if QT_VERSION >= 0x050000
 #	include <QStandardPaths>
 #else
@@ -109,6 +112,7 @@ MainWindow::MainWindow(QWidget *parent) :
 	connect(_ui->actionAttachCover, SIGNAL(triggered(bool)), SLOT(attachCover()));
 	connect(_ui->actionUploadFirmware, SIGNAL(triggered()), SLOT(uploadFirmware()));
 	connect(_ui->actionRebootDevice, SIGNAL(triggered()), SLOT(rebootDevice()));
+	connect(_ui->actionSyncJellyfin, SIGNAL(triggered()), SLOT(syncFromJellyfin()));
 
 	connect(_objectModel, SIGNAL(onFilesDropped(QStringList)), SLOT(onFilesDropped(QStringList)));
 	connect(_objectModel, SIGNAL(existingFileOverwrite(QString)), SLOT(confirmOverwrite(QString)), Qt::BlockingQueuedConnection);
@@ -1024,3 +1028,118 @@ void MainWindow::uploadFirmware()
 
 void MainWindow::rebootDevice()
 { _session->RebootDevice(); }
+
+namespace
+{
+	//	jellyfin-sync is a separate tool rather than part of this application, so
+	//	it has to be found on disk. Checked in order: an explicit override, then
+	//	the source tree relative to the running binary (build/qt/ or build-gui/qt/),
+	//	then a system install.
+	QString FindJellyfinSyncTool()
+	{
+		QString override = QString::fromLocal8Bit(qgetenv("ZUNE_SYNC_TOOL"));
+		if (!override.isEmpty() && QFileInfo(override).isExecutable())
+			return override;
+
+		const QString appDir = QCoreApplication::applicationDirPath();
+		const QStringList candidates = {
+			appDir + "/../../tools/jellyfin-sync/zune-sync",
+			appDir + "/../tools/jellyfin-sync/zune-sync",
+			appDir + "/tools/jellyfin-sync/zune-sync",
+			QDir::homePath() + "/Projects/Zune Sync/tools/jellyfin-sync/zune-sync",
+			"/usr/local/share/zune-sync/jellyfin-sync/zune-sync",
+			"/usr/share/zune-sync/jellyfin-sync/zune-sync",
+		};
+		for (const QString & path : candidates)
+		{
+			QFileInfo info(path);
+			if (info.isExecutable())
+				return info.canonicalFilePath();
+		}
+		return QString();
+	}
+
+	//	Terminals disagree about how to be handed a command: most take "-e",
+	//	gnome-terminal wants "--", and kitty/foot take the command bare.
+	bool LaunchInTerminal(const QString & command, QString & errorOut)
+	{
+		QList<QPair<QString, QString>> order;
+
+		const QString preferred = QString::fromLocal8Bit(qgetenv("TERMINAL"));
+		if (!preferred.isEmpty())
+			order.append(qMakePair(preferred, QStringLiteral("-e")));
+
+		order
+			<< qMakePair(QStringLiteral("konsole"),        QStringLiteral("-e"))
+			<< qMakePair(QStringLiteral("alacritty"),      QStringLiteral("-e"))
+			<< qMakePair(QStringLiteral("kitty"),          QString())
+			<< qMakePair(QStringLiteral("foot"),           QString())
+			<< qMakePair(QStringLiteral("wezterm"),        QStringLiteral("start"))
+			<< qMakePair(QStringLiteral("gnome-terminal"), QStringLiteral("--"))
+			<< qMakePair(QStringLiteral("xfce4-terminal"), QStringLiteral("-x"))
+			<< qMakePair(QStringLiteral("tilix"),          QStringLiteral("-e"))
+			<< qMakePair(QStringLiteral("xterm"),          QStringLiteral("-e"));
+
+		QStringList tried;
+		for (const auto & spec : order)
+		{
+			if (QStandardPaths::findExecutable(spec.first).isEmpty())
+				continue;
+
+			QStringList args;
+			if (!spec.second.isEmpty())
+				args << spec.second;
+			//	Run through a shell that pauses at the end: a sync reports what it
+			//	did, and the window closing instantly would take that with it.
+			args << QStringLiteral("bash") << QStringLiteral("-c") << command;
+
+			if (QProcess::startDetached(spec.first, args))
+				return true;
+			tried << spec.first;
+		}
+
+		errorOut = tried.isEmpty()
+			? QObject::tr("No terminal emulator found. Set the TERMINAL environment variable to one.")
+			: QObject::tr("Could not start a terminal. Tried: %1").arg(tried.join(", "));
+		return false;
+	}
+}
+
+void MainWindow::syncFromJellyfin()
+{
+	const QString tool = FindJellyfinSyncTool();
+	if (tool.isEmpty())
+	{
+		QMessageBox::warning(this, tr("Sync from Jellyfin"),
+			tr("Could not find the jellyfin-sync tool.\n\n"
+			   "It lives in tools/jellyfin-sync/ in the Zune Sync source tree. "
+			   "Set the ZUNE_SYNC_TOOL environment variable to the full path of its "
+			   "'zune-sync' script if it is somewhere else."));
+		return;
+	}
+
+	const QString dir = QFileInfo(tool).absolutePath();
+	if (!QFileInfo(dir + "/config.toml").exists())
+	{
+		auto answer = QMessageBox::question(this, tr("Sync from Jellyfin"),
+			tr("No config.toml in %1.\n\n"
+			   "jellyfin-sync needs your Jellyfin server URL and API key before it can "
+			   "sync. Open a terminal there anyway so you can create it?").arg(dir),
+			QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+		if (answer != QMessageBox::Yes)
+			return;
+	}
+
+	//	--list first so the window opens on something useful: what the server
+	//	offers and what is currently selected. Then the sync itself.
+	const QString quoted = QString(tool).replace('\'', "'\\''");
+	const QString command = QString(
+		"'%1' --list; echo; "
+		"read -p 'Press enter to sync, or Ctrl+C to stop... '; "
+		"'%1'; echo; "
+		"read -p 'Done. Press enter to close... '").arg(quoted);
+
+	QString error;
+	if (!LaunchInTerminal(command, error))
+		QMessageBox::warning(this, tr("Sync from Jellyfin"), error);
+}

@@ -71,6 +71,8 @@
     <addaction name="separator"/>
     <addaction name="actionCreateDirectory"/>
     <addaction name="separator"/>
+    <addaction name="actionSyncJellyfin"/>
+    <addaction name="separator"/>
     <addaction name="actionUploadFirmware"/>
     <addaction name="actionRebootDevice"/>
     <addaction name="separator"/>
@@ -108,6 +110,8 @@
    <addaction name="actionUploadAlbum"/>
    <addaction name="actionUploadDirectory"/>
    <addaction name="actionUpload"/>
+   <addaction name="separator"/>
+   <addaction name="actionSyncJellyfin"/>
    <addaction name="actionShowThumbnails"/>
    <addaction name="actionImportMusic"/>
   </widget>
@@ -246,6 +250,14 @@
     <string>Reboot Device</string>
    </property>
   </action>
+ <action name="actionSyncJellyfin">
+  <property name="text">
+   <string>Sync from &amp;Jellyfin…</string>
+  </property>
+  <property name="toolTip">
+   <string>Run jellyfin-sync in a terminal to sync music from your Jellyfin server</string>
+  </property>
+ </action>
  </widget>
  <layoutdefault spacing="6" margin="11"/>
  <resources/>

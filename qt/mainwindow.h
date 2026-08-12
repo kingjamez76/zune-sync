@@ -107,6 +107,7 @@ private slots:
 	void removeCover();
 	void uploadFirmware();
 	void rebootDevice();
+	void syncFromJellyfin();
 
 public slots:
 	void downloadFiles(const QString & path, const QVector<mtp::ObjectId> &objects);
