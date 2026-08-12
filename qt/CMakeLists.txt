@@ -194,7 +194,11 @@ if (BUILD_QT_UI)
 			 execute_process(COMMAND \"${OTOOL_BIN}\" -L \"${MACOSX_BUNDLE_APP_PATH}\")
 			 " COMPONENT Runtime)
   else()
-	install (FILES ${CMAKE_CURRENT_SOURCE_DIR}/zune-sync.desktop DESTINATION share/applications)
+	# Absolute Exec path: desktop launchers resolve Exec against the session PATH,
+	# which does not include ~/.local/bin for a --prefix=$HOME/.local install.
+	configure_file(${CMAKE_CURRENT_SOURCE_DIR}/zune-sync.desktop.in
+		${CMAKE_CURRENT_BINARY_DIR}/zune-sync.desktop @ONLY)
+	install (FILES ${CMAKE_CURRENT_BINARY_DIR}/zune-sync.desktop DESTINATION share/applications)
 	install (FILES ${CMAKE_CURRENT_SOURCE_DIR}/android-file-transfer.appdata.xml DESTINATION share/metainfo)
 	install (FILES ${CMAKE_CURRENT_SOURCE_DIR}/zune-sync.png DESTINATION share/icons/hicolor/512x512/apps)
   endif()

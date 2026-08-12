@@ -2,7 +2,7 @@
 Name=Zune Sync
 GenericName=Zune Media Sync
 Comment=Sync music to a Microsoft Zune over MTP, including from a Jellyfin server
-Exec=zune-sync
+Exec=@CMAKE_INSTALL_PREFIX@/bin/zune-sync
 Icon=zune-sync
 StartupNotify=false
 Terminal=false

@@ -55,12 +55,18 @@ void MtpObjectsModel::setParent(mtp::ObjectId parentObjectId)
 
 	_parentObjectId = parentObjectId;
 	mtp::msg::ObjectHandles handles;
-	try
+	//	No session means no device — the model is simply empty. Dereferencing a
+	//	null session here segfaults rather than throwing, so the catch below
+	//	cannot save us.
+	if (_session)
 	{
-		handles = _session->GetObjectHandles(_storageId, mtp::ObjectFormat::Any, parentObjectId);
+		try
+		{
+			handles = _session->GetObjectHandles(_storageId, mtp::ObjectFormat::Any, parentObjectId);
+		}
+		catch(const std::exception & ex)
+		{ qWarning() << "setParent failed:" << fromUtf8(ex.what()); }
 	}
-	catch(const std::exception & ex)
-	{ qWarning() << "setParent failed:" << fromUtf8(ex.what()); }
 	_rows.clear();
 	_rows.reserve(handles.ObjectHandles.size());
 	for(size_t i = 0; i < handles.ObjectHandles.size(); ++i)
