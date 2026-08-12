@@ -38,7 +38,27 @@ to do nothing.
 
 ## Use
 
+A `zune-sync` launcher sits next to this README and runs the tool out of its own virtualenv from
+any directory, so `./zune-sync --list` and
+`./.venv/bin/python -m jellyfin_sync --list` are equivalent.
+
+**Choosing what to sync.** `--list` prints every playlist on the server with its track count and
+marks what is currently selected:
+
+```
+playlists on https://jellyfin.example:
+  [x] Cruzin Mix                                 2 track(s)
+  [ ] Deep Cuts                                 84 track(s)
+  [x] James's Workout Pump                      15 track(s)
+```
+
+Selection lives in the `[sync]` section of `config.toml` — put the names you want in `playlists`,
+set `favorites`, or name `artists`/`albums`. Names must match exactly; copy them from `--list`,
+since playlist titles often contain characters that are easy to mistype (one here uses a Unicode
+hyphen, U+2010, not an ASCII `-`).
+
 ```sh
+./zune-sync --list                                  # what's available, and what's selected
 ./.venv/bin/python -m jellyfin_sync --dry-run       # show what would sync, change nothing
 ./.venv/bin/python -m jellyfin_sync --prepare-only  # download/transcode/tag, no device needed
 ./.venv/bin/python -m jellyfin_sync --limit 5       # try a handful first

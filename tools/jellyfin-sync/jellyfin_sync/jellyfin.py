@@ -169,6 +169,29 @@ class Jellyfin:
 
     # -- enumeration ------------------------------------------------------
 
+    def list_playlists(self, user_id: str) -> list[tuple[str, int]]:
+        """Every playlist and its track count, for choosing what to sync."""
+        items = self._paged_items(
+            "/Items",
+            userId=user_id,
+            Recursive="true",
+            IncludeItemTypes="Playlist",
+            Fields="ChildCount",
+        )
+        out = [(i.get("Name", "?"), i.get("ChildCount") or 0) for i in items]
+        return sorted(out, key=lambda p: p[0].lower())
+
+    def count_favorites(self, user_id: str) -> int:
+        page = self._get(
+            "/Items",
+            userId=user_id,
+            Recursive="true",
+            IncludeItemTypes="Audio",
+            Filters="IsFavorite",
+            Limit=0,
+        )
+        return page.get("TotalRecordCount") or 0
+
     def playlist_tracks(self, user_id: str, name: str) -> list[Track]:
         playlists = self._paged_items(
             "/Items",

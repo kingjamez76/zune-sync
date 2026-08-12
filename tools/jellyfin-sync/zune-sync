@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Convenience launcher: runs jellyfin-sync out of its own virtualenv, from anywhere.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+venv="$here/.venv"
+
+if [ ! -x "$venv/bin/python" ]; then
+	echo "no virtualenv at $venv — create it with:" >&2
+	echo "  python3 -m venv '$venv' && '$venv/bin/pip' install -r '$here/requirements.txt'" >&2
+	exit 2
+fi
+
+# Default to the config sitting next to this script unless one was given.
+for arg in "$@"; do
+	case "$arg" in
+		-c|--config) exec "$venv/bin/python" -m jellyfin_sync "$@" ;;
+	esac
+done
+
+cd "$here"
+exec "$venv/bin/python" -m jellyfin_sync "$@"

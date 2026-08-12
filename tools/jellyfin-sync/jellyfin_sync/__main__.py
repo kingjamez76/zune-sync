@@ -32,6 +32,13 @@ def main(argv: list[str] | None = None) -> int:
         "--force", action="store_true", help="re-sync tracks already recorded as uploaded"
     )
     parser.add_argument(
+        "-l",
+        "--list",
+        action="store_true",
+        dest="list_available",
+        help="show what this Jellyfin server offers and what is selected, then exit",
+    )
+    parser.add_argument(
         "--prepare-only",
         action="store_true",
         help="download, transcode and tag, but do not upload (no device needed)",
@@ -61,6 +68,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         config = load(args.config)
+        if args.list_available:
+            return Syncer(config).list_available()
         return Syncer(config, dry_run=args.dry_run).run(
             limit=args.limit, force=args.force, prepare_only=args.prepare_only
         )

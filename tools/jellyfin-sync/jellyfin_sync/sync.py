@@ -98,6 +98,32 @@ class Syncer:
         log.info("%d unique track(s) selected", len(merged))
         return merged
 
+    def list_available(self) -> int:
+        """Show what this Jellyfin server offers, and what is currently selected."""
+        user_id = self.jellyfin.resolve_user(self.config.jellyfin.user)
+        selected = {p.lower() for p in self.config.sync.playlists}
+
+        playlists = self.jellyfin.list_playlists(user_id)
+        log.info("playlists on %s:", self.config.jellyfin.url)
+        if not playlists:
+            log.info("  (none)")
+        for name, count in playlists:
+            mark = "[x]" if name.lower() in selected else "[ ]"
+            log.info("  %s %-40s %3d track(s)", mark, name, count)
+
+        favorites = self.jellyfin.count_favorites(user_id)
+        mark = "[x]" if self.config.sync.favorites else "[ ]"
+        log.info("\n  %s favorites%*s%3d track(s)", mark, 35, "", favorites)
+
+        log.info("\nalso selected:")
+        log.info("  artists: %s", ", ".join(self.config.sync.artists) or "(none)")
+        log.info("  albums : %s", ", ".join(self.config.sync.albums) or "(none)")
+        log.info(
+            "\nEdit the [sync] section of your config to change this, then run a sync.\n"
+            "Names must match exactly — copy them from the list above."
+        )
+        return 0
+
     # -- preparation ------------------------------------------------------
 
     def prepare(self, track: Track) -> Prepared:
