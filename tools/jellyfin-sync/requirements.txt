@@ -1,0 +1,6 @@
+requests>=2.31
+mutagen>=1.47
+musicbrainzngs>=0.7.1
+# Optional: audio-fingerprint matching. Needs the fpcalc binary (chromaprint package)
+# and a free API key from https://acoustid.org/new-application
+pyacoustid>=1.3.0

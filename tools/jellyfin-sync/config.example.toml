@@ -1,0 +1,40 @@
+# Copy to config.toml and fill in. config.toml is gitignored — the API key never leaves this machine.
+
+[jellyfin]
+url = "http://jellyfin.local:8096"
+api_key = ""          # Dashboard -> Advanced -> API Keys -> new key
+user = ""             # your Jellyfin username; needed for playlists and favourites
+
+[sync]
+# Everything selected here is merged and de-duplicated before syncing.
+playlists = []                    # e.g. ["Zune Mix", "Road Trip"]
+favorites = true
+artists = []                      # e.g. ["Radiohead"]
+albums = []                       # e.g. ["OK Computer"]
+
+work_dir = "~/.cache/zune-sync"                     # staging area for downloads/transcodes
+state_file = "~/.local/state/zune-sync/state.json"  # what has already been pushed to the device
+keep_staged = false                                 # keep prepared files after upload (debugging)
+
+[transcode]
+# Codecs the Zune plays natively — anything else is converted to MP3.
+# Zune / Zune HD: MP3, unprotected WMA, unprotected AAC.
+passthrough = ["mp3", "aac", "wma"]
+mp3_quality = 0        # LAME VBR quality: 0 = V0 (~245kbps, best), 9 = worst
+force_all_to_mp3 = false
+
+[musicbrainz]
+enabled = true
+# Full Picard-style rewrite: canonical tags overwrite Jellyfin's.
+overwrite = true
+# Optional. With a key (free from https://acoustid.org/new-application) tracks are matched by
+# audio fingerprint via fpcalc — far more accurate than text search. Without it, matching falls
+# back to MusicBrainz IDs from Jellyfin, then to text search.
+acoustid_api_key = ""
+rate_limit_seconds = 1.0
+min_fingerprint_score = 0.85
+embed_album_art = true
+
+[device]
+cli = "aft-mtp-cli"    # or an absolute path to your build
+batch_size = 25        # tracks per aft-mtp-cli invocation; the media library loads once per batch
