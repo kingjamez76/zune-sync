@@ -181,16 +181,20 @@ class Jellyfin:
         out = [(i.get("Name", "?"), i.get("ChildCount") or 0) for i in items]
         return sorted(out, key=lambda p: p[0].lower())
 
-    def count_favorites(self, user_id: str) -> int:
-        page = self._get(
-            "/Items",
-            userId=user_id,
-            Recursive="true",
-            IncludeItemTypes="Audio",
-            Filters="IsFavorite",
-            Limit=0,
-        )
-        return page.get("TotalRecordCount") or 0
+    def count_favorites(self, user_id: str) -> dict[str, int]:
+        """Favourite counts per type, so --list can show where the stars are."""
+        counts: dict[str, int] = {}
+        for item_type in ("Audio", "MusicAlbum", "MusicArtist"):
+            page = self._get(
+                "/Items",
+                userId=user_id,
+                Recursive="true",
+                IncludeItemTypes=item_type,
+                Filters="IsFavorite",
+                Limit=0,
+            )
+            counts[item_type] = page.get("TotalRecordCount") or 0
+        return counts
 
     def playlist_tracks(self, user_id: str, name: str) -> list[Track]:
         playlists = self._paged_items(
@@ -213,15 +217,67 @@ class Jellyfin:
         return tracks
 
     def favorite_tracks(self, user_id: str) -> list[Track]:
-        items = self._paged_items(
+        """Favourited music, whether the star was put on a track, album or artist.
+
+        Favouriting an album or an artist is the natural thing to do in
+        Jellyfin's UI, so those are expanded to their tracks rather than
+        ignored for not being audio items.
+        """
+        tracks: dict[str, Track] = {}
+
+        def absorb(items: list[dict]) -> None:
+            for item in items:
+                if item.get("Type") == "Audio":
+                    tracks.setdefault(item["Id"], _parse_track(item))
+
+        absorb(
+            self._paged_items(
+                "/Items",
+                userId=user_id,
+                Recursive="true",
+                IncludeItemTypes="Audio",
+                Filters="IsFavorite",
+                Fields=ITEM_FIELDS,
+            )
+        )
+
+        for album in self._paged_items(
             "/Items",
             userId=user_id,
             Recursive="true",
-            IncludeItemTypes="Audio",
+            IncludeItemTypes="MusicAlbum",
             Filters="IsFavorite",
-            Fields=ITEM_FIELDS,
-        )
-        return [_parse_track(i) for i in items]
+        ):
+            absorb(
+                self._paged_items(
+                    "/Items",
+                    userId=user_id,
+                    Recursive="true",
+                    IncludeItemTypes="Audio",
+                    ParentId=album["Id"],
+                    Fields=ITEM_FIELDS,
+                )
+            )
+
+        for artist in self._paged_items(
+            "/Items",
+            userId=user_id,
+            Recursive="true",
+            IncludeItemTypes="MusicArtist",
+            Filters="IsFavorite",
+        ):
+            absorb(
+                self._paged_items(
+                    "/Items",
+                    userId=user_id,
+                    Recursive="true",
+                    IncludeItemTypes="Audio",
+                    ArtistIds=artist["Id"],
+                    Fields=ITEM_FIELDS,
+                )
+            )
+
+        return list(tracks.values())
 
     def artist_tracks(self, user_id: str, name: str) -> list[Track]:
         artists = self._get("/Artists", userId=user_id, searchTerm=name).get("Items", [])

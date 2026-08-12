@@ -111,9 +111,18 @@ class Syncer:
             mark = "[x]" if name.lower() in selected else "[ ]"
             log.info("  %s %-40s %3d track(s)", mark, name, count)
 
-        favorites = self.jellyfin.count_favorites(user_id)
+        counts = self.jellyfin.count_favorites(user_id)
         mark = "[x]" if self.config.sync.favorites else "[ ]"
-        log.info("\n  %s favorites%*s%3d track(s)", mark, 35, "", favorites)
+        total = sum(counts.values())
+        log.info(
+            "\n  %s favorites: %d track(s), %d album(s), %d artist(s)",
+            mark,
+            counts.get("Audio", 0),
+            counts.get("MusicAlbum", 0),
+            counts.get("MusicArtist", 0),
+        )
+        if self.config.sync.favorites and not total:
+            log.info("      (star anything in Jellyfin and it syncs on the next run)")
 
         log.info("\nalso selected:")
         log.info("  artists: %s", ", ".join(self.config.sync.artists) or "(none)")
