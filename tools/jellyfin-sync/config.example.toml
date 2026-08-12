@@ -36,5 +36,8 @@ min_fingerprint_score = 0.85
 embed_album_art = true
 
 [device]
-cli = "aft-mtp-cli"    # or an absolute path to your build
+# Left as-is, this repo's own build (build/cli/aft-mtp-cli) is preferred over any
+# aft-mtp-cli on PATH, so a distro-packaged copy can't silently shadow local C++
+# changes. Set an absolute path to override.
+cli = "aft-mtp-cli"
 batch_size = 25        # tracks per aft-mtp-cli invocation; the media library loads once per batch

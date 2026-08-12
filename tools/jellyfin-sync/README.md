@@ -23,8 +23,18 @@ cp config.example.toml config.toml   # gitignored
 $EDITOR config.toml                  # server URL, API key, what to sync
 ```
 
-You also need `ffmpeg`/`ffprobe` on PATH, and `aft-mtp-cli` built from this repo (or set
-`device.cli` to its path).
+You also need `ffmpeg`/`ffprobe` on PATH, and `aft-mtp-cli` built from this repo:
+
+```sh
+cd ../..
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_QT_UI=OFF -DBUILD_FUSE=OFF -DBUILD_PYTHON=OFF
+cmake --build build
+```
+
+`build/cli/aft-mtp-cli` is preferred over any `aft-mtp-cli` on PATH. That ordering is deliberate:
+a distro-packaged copy would otherwise shadow this repo's build and local C++ changes would appear
+to do nothing.
 
 ## Use
 

@@ -14,6 +14,9 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
+# tools/jellyfin-sync/jellyfin_sync/device.py -> repo root
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
 
 class DeviceError(Exception):
     pass
@@ -40,15 +43,35 @@ class Zune:
         self.batch_size = max(1, batch_size)
 
     def require(self) -> str:
-        resolved = shutil.which(self.cli) or (
-            self.cli if Path(self.cli).is_file() else None
-        )
-        if resolved is None:
-            raise DeviceError(
-                f"{self.cli!r} not found — build it from this repo "
-                f"(cmake --build build) or set device.cli to its path"
+        """Locate aft-mtp-cli.
+
+        This repo's own build wins over anything on PATH: a distro-packaged
+        aft-mtp-cli would otherwise silently shadow local C++ changes.
+        """
+        if Path(self.cli).is_file():
+            return self.cli
+
+        local = REPO_ROOT / "build" / "cli" / "aft-mtp-cli"
+        if local.is_file():
+            return str(local)
+
+        found = shutil.which(self.cli)
+        if found:
+            log.warning(
+                "using %s from PATH — this repo has no build, so local C++ changes "
+                "will not be in effect",
+                found,
             )
-        return resolved
+            return found
+
+        raise DeviceError(
+            f"{self.cli!r} not found on PATH and no build at {local} — "
+            f"build it with:\n"
+            f"  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "
+            f"-DBUILD_QT_UI=OFF -DBUILD_FUSE=OFF -DBUILD_PYTHON=OFF\n"
+            f"  cmake --build build\n"
+            f"or set device.cli to its path"
+        )
 
     def _run(self, commands: list[str], timeout: int = 1800) -> subprocess.CompletedProcess:
         cli = self.require()
