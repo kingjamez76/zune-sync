@@ -65,6 +65,7 @@ MainWindow::MainWindow(QWidget *parent) :
 	_objectModel(new MtpObjectsModel()),
 	_uploader(new FileUploader(_objectModel, this)),
 	_resetDevice(false),
+	_geometryRestored(false),
 	_networkReply()
 {
 	_ui->setupUi(this);
@@ -336,16 +337,42 @@ bool MainWindow::reconnectToDevice()
 
 
 void MainWindow::showEvent(QShowEvent *)
+{ openDevice(); }
+
+//	Releases the device so another process can claim it — jellyfin-sync shells
+//	out to aft-mtp-cli, and leaving this session open means the CLI pulls the
+//	device out from under it, leaving the window alive but dead.
+void MainWindow::releaseDevice()
+{
+	if (!_device)
+		return;
+
+	qDebug() << "releasing device";
+	_proxyModel->setSourceModel(NULL);
+	_objectModel->setSession(mtp::SessionPtr());
+	_trustedApp.reset();
+	_session.reset();
+	_device.reset();
+}
+
+bool MainWindow::openDevice()
 {
 	if (!_device)
 	{
 		if (!reconnectToDevice())
-			return;
+			return false;
 
-		QSettings settings;
-		restoreGeometry("main-window", *this);
-		restoreState(settings.value("state/main-window").toByteArray());
+		//	Only on the first open: re-restoring on every reconnect would move
+		//	the window out from under whoever just resized it.
+		if (!_geometryRestored)
+		{
+			QSettings settings;
+			restoreGeometry("main-window", *this);
+			restoreState(settings.value("state/main-window").toByteArray());
+			_geometryRestored = true;
+		}
 
+		auto previousStorageModel = _storageModel;
 		_storageModel = new MtpStoragesModel(this);
 		while (true)
 		{
@@ -358,7 +385,7 @@ void MainWindow::showEvent(QShowEvent *)
 			{
 				qDebug() << "device disconnected, retrying...";
 				if (!reconnectToDevice())
-					return;
+					return false;
 			}
 
 			int r = QMessageBox::warning(this, tr("No MTP Storages"),
@@ -368,13 +395,14 @@ void MainWindow::showEvent(QShowEvent *)
 			if (r & QMessageBox::Abort)
 			{
 				_device.reset();
-				return;
+				return false;
 			}
 
 			if (!reconnectToDevice())
-				return;
+				return false;
 		}
 		_ui->storageList->setModel(_storageModel);
+		delete previousStorageModel;
 		_objectModel->setSession(_session);
 		onStorageChanged(_ui->storageList->currentIndex());
 		qDebug() << "session opened, starting";
@@ -393,6 +421,7 @@ void MainWindow::showEvent(QShowEvent *)
 		_ui->actionUploadDirectory->setVisible(canUpload);
 		_ui->actionUpload->setVisible(canUpload);
 	}
+	return true;
 }
 
 void MainWindow::tryCreateLibrary()
@@ -1043,12 +1072,12 @@ namespace
 
 		const QString appDir = QCoreApplication::applicationDirPath();
 		const QStringList candidates = {
-			appDir + "/../../tools/jellyfin-sync/zune-sync",
-			appDir + "/../tools/jellyfin-sync/zune-sync",
-			appDir + "/tools/jellyfin-sync/zune-sync",
-			QDir::homePath() + "/Projects/Zune Sync/tools/jellyfin-sync/zune-sync",
-			"/usr/local/share/zune-sync/jellyfin-sync/zune-sync",
-			"/usr/share/zune-sync/jellyfin-sync/zune-sync",
+			appDir + "/../../tools/jellyfin-sync/jellyfin-sync",
+			appDir + "/../tools/jellyfin-sync/jellyfin-sync",
+			appDir + "/tools/jellyfin-sync/jellyfin-sync",
+			QDir::homePath() + "/Projects/Zune Sync/tools/jellyfin-sync/jellyfin-sync",
+			"/usr/local/share/zune-sync/jellyfin-sync/jellyfin-sync",
+			"/usr/share/zune-sync/jellyfin-sync/jellyfin-sync",
 		};
 		for (const QString & path : candidates)
 		{
@@ -1114,7 +1143,7 @@ void MainWindow::syncFromJellyfin()
 			tr("Could not find the jellyfin-sync tool.\n\n"
 			   "It lives in tools/jellyfin-sync/ in the Zune Sync source tree. "
 			   "Set the ZUNE_SYNC_TOOL environment variable to the full path of its "
-			   "'zune-sync' script if it is somewhere else."));
+			   "'jellyfin-sync' script if it is somewhere else."));
 		return;
 	}
 
@@ -1139,7 +1168,26 @@ void MainWindow::syncFromJellyfin()
 		"'%1'; echo; "
 		"read -p 'Done. Press enter to close... '").arg(quoted);
 
+	//	Hand the device over before the sync starts. aft-mtp-cli will take it
+	//	regardless; doing it deliberately means this window comes back with a
+	//	live session afterwards instead of silently losing its own.
+	releaseDevice();
+
 	QString error;
 	if (!LaunchInTerminal(command, error))
+	{
 		QMessageBox::warning(this, tr("Sync from Jellyfin"), error);
+		openDevice();
+		return;
+	}
+
+	//	The terminal is a separate process, and several terminal emulators fork
+	//	and exit immediately, so waiting on it is not reliable. Ask instead.
+	QMessageBox::information(this, tr("Sync from Jellyfin"),
+		tr("The device has been released and jellyfin-sync is running in a terminal.\n\n"
+		   "Close this dialog when the sync has finished to reconnect and see the "
+		   "newly synced music."));
+
+	openDevice();
+	refresh();
 }

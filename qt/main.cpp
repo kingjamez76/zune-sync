@@ -55,7 +55,8 @@ int main(int argc, char *argv[])
 	QApplication app(argc, argv);
 	Q_INIT_RESOURCE(android_file_transfer);
 
-	QCoreApplication::setApplicationName("aft-linux-qt");
+	QCoreApplication::setApplicationName("zune-sync");
+	QApplication::setApplicationDisplayName("Zune Sync");
 	QCoreApplication::setOrganizationDomain("whoozle.github.io");
 	QCoreApplication::setOrganizationName("whoozle.github.io");
 

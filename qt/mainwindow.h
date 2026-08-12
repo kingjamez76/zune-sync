@@ -77,6 +77,8 @@ private:
 
 private slots:
 	bool reconnectToDevice();
+	bool openDevice();
+	void releaseDevice();
 	void back();
 	void down();
 	void onActivated ( const QModelIndex & index );
@@ -131,6 +133,7 @@ private:
 	mtp::TrustedAppPtr			_trustedApp;
 	mtp::LibraryPtr				_mediaLibrary;
 	bool						_resetDevice;
+	bool						_geometryRestored;
 	QNetworkReply *				_networkReply;
 	QByteArray					_networkReplyBody;
 };

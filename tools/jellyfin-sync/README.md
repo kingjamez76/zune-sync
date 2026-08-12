@@ -38,8 +38,8 @@ to do nothing.
 
 ## Use
 
-A `zune-sync` launcher sits next to this README and runs the tool out of its own virtualenv from
-any directory, so `./zune-sync --list` and
+A `jellyfin-sync` launcher sits next to this README and runs the tool out of its own virtualenv from
+any directory, so `./jellyfin-sync --list` and
 `./.venv/bin/python -m jellyfin_sync --list` are equivalent.
 
 **Choosing what to sync.** `--list` prints every playlist on the server with its track count and
@@ -58,7 +58,7 @@ since playlist titles often contain characters that are easy to mistype (one her
 hyphen, U+2010, not an ASCII `-`).
 
 ```sh
-./zune-sync --list                                  # what's available, and what's selected
+./jellyfin-sync --list                                  # what's available, and what's selected
 ./.venv/bin/python -m jellyfin_sync --dry-run       # show what would sync, change nothing
 ./.venv/bin/python -m jellyfin_sync --prepare-only  # download/transcode/tag, no device needed
 ./.venv/bin/python -m jellyfin_sync --limit 5       # try a handful first

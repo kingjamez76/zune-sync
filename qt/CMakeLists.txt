@@ -147,6 +147,12 @@ if (BUILD_QT_UI)
   set_property(TARGET ${CMAKE_PROJECT_NAME} PROPERTY MACOSX_BUNDLE_INFO_PLIST "${MACOSX_BUNDLE_INFO_PLIST}")
   target_link_libraries("${CMAKE_PROJECT_NAME}" ${EXTRA_QT_LINK} ${MTP_LIBRARIES})
 
+  # Ship as "zune-sync". The CMake target keeps the upstream project name because
+  # the macOS bundle rules below are keyed on it.
+  if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME "zune-sync")
+  endif()
+
   install(TARGETS ${CMAKE_PROJECT_NAME}
 		  RUNTIME DESTINATION bin
 		  BUNDLE DESTINATION .)
@@ -188,8 +194,8 @@ if (BUILD_QT_UI)
 			 execute_process(COMMAND \"${OTOOL_BIN}\" -L \"${MACOSX_BUNDLE_APP_PATH}\")
 			 " COMPONENT Runtime)
   else()
-	install (FILES ${CMAKE_CURRENT_SOURCE_DIR}/android-file-transfer.desktop DESTINATION share/applications)
+	install (FILES ${CMAKE_CURRENT_SOURCE_DIR}/zune-sync.desktop DESTINATION share/applications)
 	install (FILES ${CMAKE_CURRENT_SOURCE_DIR}/android-file-transfer.appdata.xml DESTINATION share/metainfo)
-	install (FILES ${CMAKE_CURRENT_SOURCE_DIR}/android-file-transfer.png DESTINATION share/icons/hicolor/512x512/apps)
+	install (FILES ${CMAKE_CURRENT_SOURCE_DIR}/zune-sync.png DESTINATION share/icons/hicolor/512x512/apps)
   endif()
 endif()

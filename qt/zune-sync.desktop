@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Zune Sync
+GenericName=Zune Media Sync
+Comment=Sync music to a Microsoft Zune over MTP, including from a Jellyfin server
+Exec=zune-sync
+Icon=zune-sync
+StartupNotify=false
+Terminal=false
+Type=Application
+Categories=AudioVideo;Music;FileTools;
+Keywords=zune;mtp;music;sync;jellyfin;
