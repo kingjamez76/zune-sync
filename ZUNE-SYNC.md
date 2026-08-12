@@ -34,15 +34,52 @@ A pristine, unmodified copy of upstream is also kept at
    MusicBrainz before upload. This sits outside the C++ entirely: it prepares files with correct
    tags and hands them to the CLI, because `Metadata::Read` takes its metadata from the file's own
    tags.
-2. **Playlist support** — upstream knows the playlist object formats
-   (`AbstractAudioPlaylist` 0xba09, `M3uPlaylist`, `WplPlaylist`, …) but never creates playlist
+2. **Playlist support** — upstream knows the playlist object formats but never creates playlist
    objects. The work mirrors the existing album path: create the abstract object with
-   `SendObjectPropList`, then attach tracks with `SetObjectReferences`. Confirm the device
-   advertises the format via `aft-mtp-cli`'s `device-info` first.
+   `SendObjectPropList`, then attach tracks with `SetObjectReferences`. See the device capabilities
+   below for which format to use.
 3. **Wireless sync** — the speculative one. `Session` owns a concrete `PipePacketer` over a USB
    `BulkPipe` with no transport abstraction, and there is no socket code anywhere in `mtp/`, so
    this needs a transport seam *and* an answer to what the Zune's wireless sync protocol actually
    is. Research before committing.
+
+## Device capabilities (Zune HD, firmware 04.05.00114.00)
+
+Dumped with `aft-mtp-cli device-info` on 2026-08-12. USB id `045e:063e`; the vendor extension list
+includes `microsoft.com/MTPZ: 1.0`, so `~/.mtpz-data` must be present to connect.
+
+Operations relevant to the media library — all three that `Library::Supported()` requires are
+present, so `zune-import` is available:
+
+| Operation | Code |
+|---|---|
+| `GetObjectPropList` | 0x9805 |
+| `SendObjectPropList` | 0x9808 |
+| `SetObjectReferences` | 0x9811 |
+
+Object formats advertised:
+
+| Format | Code | |
+|---|---|---|
+| `Mp3` | 0x3009 | audio |
+| `Wma` / `Asf` | 0xb901 / 0x300c | audio |
+| `M4a` / `Aac` | 0xb215 / 0xb903 | audio |
+| `AbstractAudioAlbum` | 0xba03 | album objects |
+| `Artist` | 0xb218 | artist objects |
+| **`AbstractAVPlaylist`** | **0xba05** | **playlists** |
+| `AbstractMediacast` | 0xba0b | |
+
+**Playlists must use `AbstractAVPlaylist` (0xba05).** The device does *not* advertise
+`AbstractAudioPlaylist` (0xba09), which would be the obvious guess for an audio playlist.
+
+The audio format list is also what makes the transcode policy in `tools/jellyfin-sync` correct:
+MP3, WMA and AAC pass through, everything else is converted.
+
+### Known device-side gap
+
+`zune-import` in the CLI does not check `Library::HasTrack` before creating a track, unlike the Qt
+import path (`qt/commandqueue.cpp`). Re-importing the same track therefore creates a duplicate on
+the device rather than being skipped.
 
 ## Building
 

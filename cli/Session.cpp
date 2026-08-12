@@ -1082,6 +1082,26 @@ namespace cli
 		print(_gdi.DeviceVersion);
 		print(_gdi.SerialNumber);
 		print(_gdi.VendorExtensionDesc);
+
+		//	What the device actually supports decides which features are usable
+		//	at all — media library, playlists, references — so show it.
+		print("");
+		print("operations supported:");
+		for (auto op : _gdi.OperationsSupported)
+			print("\t", ToString(op), "\t", hex(static_cast<u16>(op), 4));
+
+		print("");
+		print("object formats supported:");
+		for (auto format : _gdi.ImageFormats)
+			print("\t", ToString(format), "\t", hex(static_cast<u16>(format), 4));
+
+		if (!_gdi.CaptureFormats.empty())
+		{
+			print("");
+			print("capture formats:");
+			for (auto format : _gdi.CaptureFormats)
+				print("\t", ToString(format), "\t", hex(static_cast<u16>(format), 4));
+		}
 	}
 
 	void Session::DisplayStorageInfo(const StoragePath &path)
