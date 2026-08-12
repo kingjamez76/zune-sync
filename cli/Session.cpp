@@ -1184,6 +1184,17 @@ namespace cli
 
 		debug("got album record");
 
+		//	The Qt import path checks this before creating a track; the CLI did
+		//	not, so re-importing a track duplicated it on the device instead of
+		//	skipping it.
+		if (_library->HasTrack(album, meta->Title, meta->Track))
+		{
+			//	The path is included so a caller importing a batch can tell which
+			//	file was skipped; the title alone is ambiguous.
+			print("skipping ", path, ": ", meta->Title, " already on device");
+			return;
+		}
+
 		ObjectFormat format = ObjectFormatFromFilename(path);
 		auto slashpos = path.rfind('/');
 		auto filename = slashpos != path.npos? path.substr(slashpos + 1): std::string(path);

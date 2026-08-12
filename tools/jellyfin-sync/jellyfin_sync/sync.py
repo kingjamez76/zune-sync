@@ -203,13 +203,17 @@ class Syncer:
 
         log.info("uploading %d track(s) to the device", len(prepared))
         by_path = {p.path: p for p in prepared}
-        uploaded, failed = self.device.import_tracks([p.path for p in prepared])
+        uploaded, skipped, failed = self.device.import_tracks([p.path for p in prepared])
 
-        for path in uploaded:
+        # A skip means the device already had it, which is just as final as an
+        # upload — record both so the next run stops re-preparing them.
+        for path in uploaded + skipped:
             item = by_path[path]
             self.state.record(
                 item.track.id, item.track.describe(), path.name, item.tags.source
             )
+        for path in skipped:
+            log.info("  already on device: %s", by_path[path].track.describe())
         for path, error in failed:
             log.error("  upload failed: %s (%s)", path.name, error)
 
@@ -217,10 +221,15 @@ class Syncer:
         self.state.save()
 
         if not cfg.sync.keep_staged:
-            for path in uploaded:
+            for path in uploaded + skipped:
                 path.unlink(missing_ok=True)
 
-        log.info("done: %d uploaded, %d failed", len(uploaded), len(failed))
+        log.info(
+            "done: %d uploaded, %d already present, %d failed",
+            len(uploaded),
+            len(skipped),
+            len(failed),
+        )
         return 0 if not failed else 1
 
     def _record_playlists(self, tracks: dict[str, Track]) -> None:

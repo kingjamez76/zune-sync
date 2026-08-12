@@ -89,9 +89,16 @@ class Zune:
             )
         return result.stdout
 
-    def import_tracks(self, paths: list[Path]) -> tuple[list[Path], list[tuple[Path, str]]]:
-        """Import files in batches. Returns (uploaded, [(path, error), ...])."""
+    def import_tracks(
+        self, paths: list[Path]
+    ) -> tuple[list[Path], list[Path], list[tuple[Path, str]]]:
+        """Import files in batches.
+
+        Returns (uploaded, skipped, [(path, error), ...]). Skipped means the
+        device already had the track — still a success, but not a transfer.
+        """
         uploaded: list[Path] = []
+        skipped: list[Path] = []
         failed: list[tuple[Path, str]] = []
 
         for start in range(0, len(paths), self.batch_size):
@@ -109,27 +116,44 @@ class Zune:
                 # batch is unknown rather than failed — retry it individually.
                 log.warning("batch failed, retrying %d tracks individually", len(batch))
                 for path in batch:
-                    ok, err = self._import_one(path)
-                    (uploaded.append(path) if ok else failed.append((path, err)))
+                    state, err = self._import_one(path)
+                    if state == "uploaded":
+                        uploaded.append(path)
+                    elif state == "skipped":
+                        skipped.append(path)
+                    else:
+                        failed.append((path, err))
                 continue
 
             for path in batch:
                 if _reports_error(output, path):
                     failed.append((path, _error_line(output, path)))
+                elif _reports_skip(output, path):
+                    skipped.append(path)
                 else:
                     uploaded.append(path)
 
-        return uploaded, failed
+        return uploaded, skipped, failed
 
-    def _import_one(self, path: Path) -> tuple[bool, str]:
+    def _import_one(self, path: Path) -> tuple[str, str]:
+        """Import one file. Returns (state, error) with state uploaded|skipped|failed."""
         try:
             result = self._run([f"zune-import {quote(path)}"], timeout=600)
         except subprocess.TimeoutExpired:
-            return False, "aft-mtp-cli timed out"
+            return "failed", "aft-mtp-cli timed out"
         if result.returncode != 0:
             message = (result.stderr or result.stdout).strip().splitlines()
-            return False, message[-1][:300] if message else "unknown error"
-        return True, ""
+            return "failed", message[-1][:300] if message else "unknown error"
+        if _reports_skip(f"{result.stdout}\n{result.stderr}", path):
+            return "skipped", ""
+        return "uploaded", ""
+
+
+def _reports_skip(output: str, path: Path) -> bool:
+    """Did the device already have this track? (see Session::ZuneImport)"""
+    return any(
+        line.startswith("skipping ") and path.name in line for line in output.splitlines()
+    )
 
 
 def _reports_error(output: str, path: Path) -> bool:
