@@ -38,10 +38,39 @@ A pristine, unmodified copy of upstream is also kept at
    objects. The work mirrors the existing album path: create the abstract object with
    `SendObjectPropList`, then attach tracks with `SetObjectReferences`. See the device capabilities
    below for which format to use.
-3. **Wireless sync** — the speculative one. `Session` owns a concrete `PipePacketer` over a USB
-   `BulkPipe` with no transport abstraction, and there is no socket code anywhere in `mtp/`, so
-   this needs a transport seam *and* an answer to what the Zune's wireless sync protocol actually
-   is. Research before committing.
+3. **Wireless sync** — no longer speculative as to protocol; see below.
+
+## Wireless sync research (2026-08-12)
+
+The Zune's wireless sync is **PTP/IP** — the same PTP/MTP command set `mtp/ptp/` already
+implements, carried over TCP instead of USB bulk endpoints. It has been reverse engineered
+by the [Xune](https://github.com/xune-software/xune-releases) project, whose
+[XuneSyncLibrary](https://github.com/xune-software/XuneSyncLibrary) is **LGPL-2.1 — the same
+licence as this codebase**, so its findings are compatible with our work here.
+
+What that implies for us:
+
+- **Pairing is a prerequisite and happens over USB, in two phases** — a sync pairing, then a
+  wireless pairing that configures the device's network credentials. An unpaired device simply
+  will not talk to a given host over the network. XuneSyncLibrary exposes these as
+  `zune_device_establish_sync_pairing()` and `zune_device_establish_wireless_pairing()`.
+- **Discovery is SSDP**; the device announces itself and the host reacts, then the host opens the
+  PTP/IP connection to the device.
+- Xune's own notes describe its PTP/IP path as "implemented but not actively tested", so this is
+  thin ice even in the prior art.
+
+Observed on this network (192.168.4.0/22, eero) with wireless sync switched on at the device:
+
+- The Zune does not appear in ARP after a full-subnet sweep, advertises nothing over mDNS, and
+  nothing on the LAN listens on 15740 (the standard PTP/IP port).
+- **An SSDP `M-SEARCH` drew zero responders network-wide** — not one device, despite mDNS working
+  normally. So SSDP appears to be filtered here, which would break the discovery step even after
+  pairing. Worth testing directly against the device's IP once it is paired, rather than relying
+  on multicast.
+
+The remaining code-side obstacle is unchanged: `Session` owns a concrete `PipePacketer` over a USB
+`BulkPipe` ([Session.h](mtp/ptp/Session.h)), and there is no socket code in `mtp/`, so a transport
+seam has to be introduced above `BulkPipe` before any of this can be wired in.
 
 ## Device capabilities (Zune HD, firmware 04.05.00114.00)
 
