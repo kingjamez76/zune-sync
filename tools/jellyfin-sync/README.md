@@ -39,10 +39,11 @@ to do nothing.
 ## Use
 
 ```sh
-./.venv/bin/python -m jellyfin_sync --dry-run     # show what would sync, change nothing
-./.venv/bin/python -m jellyfin_sync --limit 5     # try a handful first
-./.venv/bin/python -m jellyfin_sync               # full run
-./.venv/bin/python -m jellyfin_sync --device-info # dump the device's MTP capabilities
+./.venv/bin/python -m jellyfin_sync --dry-run       # show what would sync, change nothing
+./.venv/bin/python -m jellyfin_sync --prepare-only  # download/transcode/tag, no device needed
+./.venv/bin/python -m jellyfin_sync --limit 5       # try a handful first
+./.venv/bin/python -m jellyfin_sync                 # full run
+./.venv/bin/python -m jellyfin_sync --device-info   # dump the device's MTP capabilities
 ```
 
 Runs are incremental: uploaded tracks are recorded in `sync.state_file` and skipped next time.
@@ -62,7 +63,16 @@ deliberately *not* treated as playable.
 
 1. MusicBrainz IDs Jellyfin already holds for the item
 2. AcoustID audio fingerprint — most accurate, needs `fpcalc` plus a free API key
-3. MusicBrainz text search, accepted only at a score of 90+
+3. MusicBrainz text search, accepted only at a score of 90+ **and only when the track has an
+   artist to constrain it** — title-only search cheerfully matches a different remix at a high
+   score, so a track with no artist keeps the metadata it came with
+
+When several releases contain the recording, the **earliest** is chosen and the year comes from
+the release group's first-release-date. Picking whatever MusicBrainz lists first tags a 2010
+single as 2024, because reissues outnumber originals.
+
+Existing file tags are only cleared when there is something authoritative to replace them with. A
+passthrough file whose MusicBrainz lookup missed keeps its own tags rather than being emptied.
 
 Canonical title, artist, **album artist**, album, track/disc number, year and genre are written
 back into the file, and album art is pulled from Jellyfin and embedded. Any miss falls back to

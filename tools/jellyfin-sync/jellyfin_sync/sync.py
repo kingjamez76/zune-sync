@@ -133,15 +133,22 @@ class Syncer:
         if cfg.musicbrainz.embed_album_art:
             cover = self.jellyfin.album_art(track)
 
-        write_tags(staged, tags, cover)
+        # Only clear the file's own tags when we have something authoritative to
+        # put in their place; a transcode starts tagless either way.
+        replace = transcode or (
+            tags.source != "jellyfin" and cfg.musicbrainz.overwrite
+        )
+        write_tags(staged, tags, cover, replace=replace)
         return Prepared(track=track, path=staged, tags=tags, transcoded=transcode)
 
     # -- top level --------------------------------------------------------
 
-    def run(self, limit: int | None = None, force: bool = False) -> int:
+    def run(
+        self, limit: int | None = None, force: bool = False, prepare_only: bool = False
+    ) -> int:
         cfg = self.config
         formats.require_tools()
-        if not self.dry_run:
+        if not self.dry_run and not prepare_only:
             self.device.require()
 
         tracks = self.collect()
@@ -182,6 +189,17 @@ class Syncer:
         if not prepared:
             log.error("nothing could be prepared")
             return 1
+
+        if prepare_only:
+            log.info("prepared %d track(s) in %s (not uploaded)", len(prepared), cfg.staged_dir)
+            for item in prepared:
+                log.info(
+                    "  %-58s %s%s",
+                    item.path.name,
+                    item.tags.source,
+                    " [transcoded]" if item.transcoded else "",
+                )
+            return 0
 
         log.info("uploading %d track(s) to the device", len(prepared))
         by_path = {p.path: p for p in prepared}

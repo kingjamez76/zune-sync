@@ -32,6 +32,11 @@ def main(argv: list[str] | None = None) -> int:
         "--force", action="store_true", help="re-sync tracks already recorded as uploaded"
     )
     parser.add_argument(
+        "--prepare-only",
+        action="store_true",
+        help="download, transcode and tag, but do not upload (no device needed)",
+    )
+    parser.add_argument(
         "--device-info",
         action="store_true",
         help="dump the connected device's MTP capabilities and exit",
@@ -44,6 +49,9 @@ def main(argv: list[str] | None = None) -> int:
         format="%(message)s",
         stream=sys.stdout,
     )
+    # musicbrainzngs logs every unmodelled XML element it sees, which is constant
+    # and says nothing about whether the match was good.
+    logging.getLogger("musicbrainzngs").setLevel(logging.WARNING)
 
     try:
         if args.device_info:
@@ -53,7 +61,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         config = load(args.config)
-        return Syncer(config, dry_run=args.dry_run).run(limit=args.limit, force=args.force)
+        return Syncer(config, dry_run=args.dry_run).run(
+            limit=args.limit, force=args.force, prepare_only=args.prepare_only
+        )
 
     except ConfigError as exc:
         print(f"config error: {exc}", file=sys.stderr)

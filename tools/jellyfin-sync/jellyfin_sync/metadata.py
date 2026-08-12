@@ -96,9 +96,14 @@ class MusicBrainzResolver:
             except Exception as exc:  # noqa: BLE001 - network/fpcalc failures are non-fatal
                 log.debug("acoustid lookup failed for %s: %s", track.describe(), exc)
 
-        query = {"recording": track.title}
-        if track.artist:
-            query["artist"] = track.artist
+        # Title-only search is not safe: with no artist to constrain it, a title
+        # like "Epic Sax Guy (AKAY EDM Remix)" happily matches a different remix
+        # at a high score. Require an artist, or keep the tags we already have.
+        if not (track.artist or track.album_artist):
+            log.debug("no artist on %s — skipping text search", track.title)
+            return None, "none"
+
+        query = {"recording": track.title, "artist": track.artist or track.album_artist}
         if track.album:
             query["release"] = track.album
         try:
@@ -165,7 +170,14 @@ class MusicBrainzResolver:
                 if (release.get("title") or "").lower() == track.album.lower():
                     return release
 
-        return releases[0]
+        # Otherwise take the earliest release rather than whatever MusicBrainz
+        # happens to list first — that is routinely a much later reissue, which
+        # is how a 2010 single ends up tagged 2024.
+        def sort_key(release: dict) -> str:
+            date = release.get("date") or ""
+            return date if len(date) >= 4 else "9999"
+
+        return min(releases, key=sort_key)
 
     def _apply_release(
         self, tags: TagSet, release: dict, rec_id: str, fallback: TagSet
@@ -178,11 +190,18 @@ class MusicBrainzResolver:
 
         try:
             full = musicbrainzngs.get_release_by_id(
-                release["id"], includes=["recordings", "artist-credits", "media"]
+                release["id"],
+                includes=["recordings", "artist-credits", "media", "release-groups"],
             )["release"]
         except Exception as exc:  # noqa: BLE001
             log.debug("musicbrainz release fetch failed for %s: %s", release.get("title"), exc)
             return
+
+        # The release-group's first-release-date is the original year; a specific
+        # release may be a reissue decades later.
+        first_release = (full.get("release-group") or {}).get("first-release-date") or ""
+        if first_release[:4].isdigit():
+            tags.year = int(first_release[:4])
 
         # This is the whole point of the exercise: a real album artist, distinct
         # from the track artist, so "feat." credits survive without breaking browse-by-artist.
@@ -227,12 +246,21 @@ def _top_tag(tag_list) -> str:
 # -- writing --------------------------------------------------------------
 
 
-def write_tags(path: Path, tags: TagSet, cover: bytes | None = None) -> None:
+def write_tags(
+    path: Path, tags: TagSet, cover: bytes | None = None, replace: bool = True
+) -> None:
+    """Write tags to a file.
+
+    With replace=False the file's existing tags are kept and only fields we
+    actually have are set. That matters for passthrough files we did not
+    transcode: if MusicBrainz found nothing and Jellyfin's metadata is thin,
+    clearing the file's own tags would destroy the only metadata there is.
+    """
     suffix = path.suffix.lower()
     if suffix == ".mp3":
-        _write_mp3(path, tags, cover)
+        _write_mp3(path, tags, cover, replace)
     elif suffix in (".m4a", ".mp4", ".aac"):
-        _write_mp4(path, tags, cover)
+        _write_mp4(path, tags, cover, replace)
     elif suffix == ".wma":
         _write_asf(path, tags)
     else:
@@ -261,7 +289,7 @@ def _common(tags: TagSet) -> dict[str, str]:
     return {k: v for k, v in out.items() if v}
 
 
-def _write_mp3(path: Path, tags: TagSet, cover: bytes | None) -> None:
+def _write_mp3(path: Path, tags: TagSet, cover: bytes | None, replace: bool = True) -> None:
     try:
         audio = EasyID3(path)
     except ID3NoHeaderError:
@@ -269,7 +297,8 @@ def _write_mp3(path: Path, tags: TagSet, cover: bytes | None) -> None:
         audio.save(path)
         audio = EasyID3(path)
 
-    audio.delete()
+    if replace:
+        audio.delete()
     for key, value in _common(tags).items():
         audio[key] = value
     audio.save(path, v2_version=3)  # v2.3 — friendlier to old players than v2.4
@@ -293,9 +322,10 @@ def _write_mp3(path: Path, tags: TagSet, cover: bytes | None) -> None:
         MP3(path)  # cheap sanity check that the file still parses
 
 
-def _write_mp4(path: Path, tags: TagSet, cover: bytes | None) -> None:
+def _write_mp4(path: Path, tags: TagSet, cover: bytes | None, replace: bool = True) -> None:
     audio = EasyMP4(path)
-    audio.delete()
+    if replace:
+        audio.delete()
     for key, value in _common(tags).items():
         try:
             audio[key] = value
