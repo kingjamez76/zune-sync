@@ -57,6 +57,18 @@ namespace mtp
 			mtp::debug("abstract album supports date authored: ", _albumDateAuthoredSupported, ", cover: ", _albumCoverSupported);
 		}
 
+		//	The Zune HD advertises AbstractAVPlaylist (0xba05) and not
+		//	AbstractAudioPlaylist (0xba09), so the AV format is what to look for.
+		_playlistsSupported = _session->GetDeviceInfo().Supports(ObjectFormat::AbstractAVPlaylist);
+		_playlistFilenameSupported = false;
+		if (_playlistsSupported)
+		{
+			auto propsSupported = _session->GetObjectPropertiesSupported(ObjectFormat::AbstractAVPlaylist);
+			_playlistFilenameSupported = propsSupported.Supports(ObjectProperty::ObjectFilename);
+		}
+		mtp::debug("device supports playlists: ", _playlistsSupported? "yes": "no",
+			", playlist filename: ", _playlistFilenameSupported? "yes": "no");
+
 		_storage = storages.StorageIDs[0]; //picking up first storage.
 		//zune fails to create artist/album without storage id
 		{
@@ -172,6 +184,8 @@ namespace mtp
 			if (reporter)
 				reporter(State::LoadingAlbums, ++progress, total);
 		});
+
+		LoadPlaylists();
 
 		if (reporter)
 			reporter(State::Loaded, progress, total);
@@ -294,9 +308,12 @@ namespace mtp
 	}
 
 	bool Library::HasTrack(const AlbumPtr & album, const std::string &name, int trackIndex)
+	{ return GetTrackId(album, name, trackIndex) != ObjectId(); }
+
+	ObjectId Library::GetTrackId(const AlbumPtr & album, const std::string &name, int trackIndex)
 	{
 		if (!album)
-			return false;
+			return ObjectId();
 
 		LoadRefs(album);
 
@@ -304,11 +321,11 @@ namespace mtp
 		auto range = tracks.equal_range(name);
 		for(auto i = range.first; i != range.second; ++i)
 		{
-			if (i->second == trackIndex)
-				return true;
+			if (i->second.first == trackIndex)
+				return i->second.second;
 		}
 
-		return false;
+		return ObjectId();
 	}
 
 	Library::NewTrackInfo Library::CreateTrack(const ArtistPtr & artist,
@@ -384,7 +401,7 @@ namespace mtp
 			auto name = _session->GetObjectStringProperty(trackId, ObjectProperty::Name);
 			auto index = _session->GetObjectIntegerProperty(trackId, ObjectProperty::Track);
 			debug("[", index, "]: ", name);
-			album->Tracks.insert(std::make_pair(name, index));
+			album->Tracks.insert(std::make_pair(name, std::make_pair(static_cast<int>(index), trackId)));
 		}
 		album->RefsLoaded = true;
 	}
@@ -404,7 +421,111 @@ namespace mtp
 		handles.ObjectHandles.push_back(ti.Id);
 		_session->SetObjectReferences(album->Id, handles);
 		refs.insert(ti.Id);
-		tracks.insert(std::make_pair(ti.Name, ti.Index));
+		tracks.insert(std::make_pair(ti.Name, std::make_pair(ti.Index, ti.Id)));
+	}
+
+	void Library::LoadPlaylists()
+	{
+		if (!_playlistsSupported)
+			return;
+
+		auto handles = _session->GetObjectHandles(mtp::Session::AllStorages, ObjectFormat::AbstractAVPlaylist, mtp::Session::Device);
+		for(auto id : handles.ObjectHandles)
+		{
+			std::string name;
+			try { name = _session->GetObjectStringProperty(id, ObjectProperty::Name); }
+			catch(const std::exception & ex)
+			{ debug("could not read playlist name: ", ex.what()); continue; }
+
+			if (name.empty())
+				continue;
+
+			auto playlist = std::make_shared<Playlist>();
+			playlist->Id = id;
+			playlist->Name = name;
+			try
+			{
+				auto refs = _session->GetObjectReferences(id).ObjectHandles;
+				playlist->Tracks.assign(refs.begin(), refs.end());
+			}
+			catch(const std::exception & ex)
+			{ debug("could not read refs of playlist ", name, ": ", ex.what()); }
+
+			debug("playlist ", name, " with ", playlist->Tracks.size(), " track(s)");
+			_playlists.insert(std::make_pair(name, playlist));
+		}
+	}
+
+	Library::PlaylistPtr Library::GetPlaylist(const std::string & name)
+	{
+		auto it = _playlists.find(name);
+		return it != _playlists.end()? it->second: nullptr;
+	}
+
+	Library::PlaylistPtr Library::CreatePlaylist(const std::string & name)
+	{
+		if (!_playlistsSupported)
+			throw std::runtime_error("device does not support playlists");
+
+		auto existing = GetPlaylist(name);
+		if (existing)
+			return existing;
+
+		ByteArray propList;
+		OutputStream os(propList);
+
+		os.Write32(_playlistFilenameSupported? 2: 1); //number of props
+
+		os.Write32(0); //object handle
+		os.Write16(static_cast<u16>(ObjectProperty::Name));
+		os.Write16(static_cast<u16>(DataTypeCode::String));
+		os.WriteString(name);
+
+		if (_playlistFilenameSupported)
+		{
+			os.Write32(0); //object handle
+			os.Write16(static_cast<u16>(ObjectProperty::ObjectFilename));
+			os.Write16(static_cast<u16>(DataTypeCode::String));
+			os.WriteString(name + ".pl");
+		}
+
+		auto response = _session->SendObjectPropList(_storage, Session::Root, ObjectFormat::AbstractAVPlaylist, 0, propList);
+
+		auto playlist = std::make_shared<Playlist>();
+		playlist->Id = response.ObjectId;
+		playlist->Name = name;
+		_playlists.insert(std::make_pair(name, playlist));
+		debug("created playlist ", name, " with id ", playlist->Id.Id);
+		return playlist;
+	}
+
+	void Library::WritePlaylistRefs(const PlaylistPtr & playlist)
+	{
+		msg::ObjectHandles handles;
+		handles.ObjectHandles = playlist->Tracks;
+		_session->SetObjectReferences(playlist->Id, handles);
+	}
+
+	void Library::ClearPlaylist(const PlaylistPtr & playlist)
+	{
+		if (!playlist)
+			return;
+		playlist->Tracks.clear();
+		WritePlaylistRefs(playlist);
+	}
+
+	void Library::AddToPlaylist(const PlaylistPtr & playlist, ObjectId trackId)
+	{
+		if (!playlist || trackId == ObjectId())
+			return;
+
+		//	A track appearing twice in one playlist is almost certainly a mistake
+		//	on our side rather than an intent to repeat it.
+		if (std::find(playlist->Tracks.begin(), playlist->Tracks.end(), trackId) != playlist->Tracks.end())
+			return;
+
+		playlist->Tracks.push_back(trackId);
+		WritePlaylistRefs(playlist);
 	}
 
 	void Library::AddCover(AlbumPtr album, const mtp::ByteArray &data)

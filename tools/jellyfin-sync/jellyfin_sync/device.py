@@ -41,6 +41,7 @@ class Zune:
     def __init__(self, cli: str = "aft-mtp-cli", batch_size: int = 25):
         self.cli = cli
         self.batch_size = max(1, batch_size)
+        self.object_ids: dict[Path, int] = {}
 
     def require(self) -> str:
         """Locate aft-mtp-cli.
@@ -100,6 +101,7 @@ class Zune:
         uploaded: list[Path] = []
         skipped: list[Path] = []
         failed: list[tuple[Path, str]] = []
+        self.object_ids = {}
 
         for start in range(0, len(paths), self.batch_size):
             batch = paths[start : start + self.batch_size]
@@ -126,6 +128,9 @@ class Zune:
                 continue
 
             for path in batch:
+                oid = _object_id(output, path)
+                if oid is not None:
+                    self.object_ids[path] = oid
                 if _reports_error(output, path):
                     failed.append((path, _error_line(output, path)))
                 elif _reports_skip(output, path):
@@ -144,16 +149,66 @@ class Zune:
         if result.returncode != 0:
             message = (result.stderr or result.stdout).strip().splitlines()
             return "failed", message[-1][:300] if message else "unknown error"
-        if _reports_skip(f"{result.stdout}\n{result.stderr}", path):
+        output = f"{result.stdout}\n{result.stderr}"
+        oid = _object_id(output, path)
+        if oid is not None:
+            self.object_ids[path] = oid
+        if _reports_skip(output, path):
             return "skipped", ""
         return "uploaded", ""
 
 
+    def build_playlists(self, playlists: dict[str, list[int]]) -> dict[str, str]:
+        """Rebuild each playlist on the device from a list of track object ids.
+
+        Each playlist is cleared first so a re-sync replaces it rather than
+        appending duplicates. Returns {playlist: error} for failures only.
+        """
+        errors: dict[str, str] = {}
+        for name, ids in playlists.items():
+            if not ids:
+                continue
+            commands = [f"zune-playlist-clear {_quote_str(name)}"]
+            commands += [f"zune-playlist-add-id {_quote_str(name)} {oid}" for oid in ids]
+            try:
+                result = self._run(commands, timeout=900)
+            except subprocess.TimeoutExpired:
+                errors[name] = "aft-mtp-cli timed out"
+                continue
+            if result.returncode != 0:
+                message = (result.stderr or result.stdout).strip().splitlines()
+                errors[name] = message[-1][:300] if message else "unknown error"
+        return errors
+
+
+def _quote_str(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def _reports_skip(output: str, path: Path) -> bool:
     """Did the device already have this track? (see Session::ZuneImport)"""
-    return any(
-        line.startswith("skipping ") and path.name in line for line in output.splitlines()
-    )
+    return any("skipping " in line and path.name in line for line in output.splitlines())
+
+
+def _object_id(output: str, path: Path) -> int | None:
+    """Device object id from an import or skip line, for playlist references.
+
+    zune-import prints "imported <path>: <title>, id <n>" or
+    "skipping <path>: <title> already on device, id <n>".
+
+    A successful import runs a progress bar first, which leaves ANSI escapes
+    ("\x1b[1A\x1b[2K") immediately before the message. No \b anchor before
+    "imported": the preceding character is the 'K' of the erase-line escape,
+    and K->i is not a word boundary, so an anchored pattern never matches.
+    """
+    for line in output.splitlines():
+        if path.name not in line:
+            continue
+        match = re.search(r"(?:imported|skipping) .*\bid (\d+)\s*$", line)
+        if match:
+            return int(match.group(1))
+    return None
 
 
 def _reports_error(output: str, path: Path) -> bool:

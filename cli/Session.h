@@ -177,6 +177,10 @@ namespace cli
 
 		void ZuneInit();
 		void ZuneImport(const LocalPath & path);
+		void ZuneListPlaylists();
+		void ZunePlaylistClear(const std::string & name);
+		void ZunePlaylistAdd(const std::string & name, const LocalPath & path);
+		void ZunePlaylistAddId(const std::string & name, mtp::ObjectId trackId);
 		void RebootDevice();
 
 		template <typename ...Args>

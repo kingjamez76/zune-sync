@@ -186,6 +186,14 @@ namespace cli
 
 		if (Library::Supported(_session))
 		{
+			AddCommand("zune-playlist-clear", "<name> creates a playlist, emptying it if it exists",
+				make_function([this](const std::string &name) -> void { ZunePlaylistClear(name); }));
+			AddCommand("zune-playlist-add", "<name> <file> adds an already-imported file to a playlist",
+				make_function([this](const std::string &name, const LocalPath &path) -> void { ZunePlaylistAdd(name, path); }));
+			AddCommand("zune-playlist-add-id", "<name> <object-id> adds a track by object id to a playlist",
+				make_function([this](const std::string &name, mtp::u32 id) -> void { ZunePlaylistAddId(name, mtp::ObjectId(id)); }));
+			AddCommand("zune-playlists", "lists playlists on the device",
+				make_function([this]() -> void { ZuneListPlaylists(); }));
 			AddCommand("zune-init", "load media library",
 				make_function([this]() -> void { ZuneInit(); }));
 			AddCommand("zune-import", "<file> import file using metadata",
@@ -1152,6 +1160,74 @@ namespace cli
 			_library = std::make_shared<mtp::Library>(_session);
 	}
 
+	void Session::ZuneListPlaylists()
+	{
+		using namespace mtp;
+		ZuneInit();
+		if (!_library)
+			throw std::runtime_error("library failed to initialise");
+
+		if (!_library->PlaylistsSupported())
+		{
+			print("device does not support playlists");
+			return;
+		}
+
+		for (auto & entry : _library->GetPlaylists())
+			print(entry.second->Id.Id, "\t", entry.second->Tracks.size(), "\t", entry.first);
+	}
+
+	void Session::ZunePlaylistClear(const std::string & name)
+	{
+		using namespace mtp;
+		ZuneInit();
+		if (!_library)
+			throw std::runtime_error("library failed to initialise");
+
+		auto playlist = _library->CreatePlaylist(name);
+		_library->ClearPlaylist(playlist);
+		print("playlist ", name, " ready (id ", playlist->Id.Id, ")");
+	}
+
+	void Session::ZunePlaylistAddId(const std::string & name, mtp::ObjectId trackId)
+	{
+		using namespace mtp;
+		ZuneInit();
+		if (!_library)
+			throw std::runtime_error("library failed to initialise");
+
+		auto playlist = _library->CreatePlaylist(name);
+		_library->AddToPlaylist(playlist, trackId);
+		print("added id ", trackId.Id, " to ", name);
+	}
+
+	void Session::ZunePlaylistAdd(const std::string & name, const LocalPath & path)
+	{
+		ZuneInit();
+		if (!_library)
+			throw std::runtime_error("library failed to initialise");
+
+		using namespace mtp;
+		auto meta = Metadata::Read(path);
+		if (!meta)
+			throw std::runtime_error("no metadata in " + std::string(path));
+
+		//	The track has to already be on the device; this resolves the same
+		//	artist/album/title triple zune-import used to create it.
+		auto artist = _library->GetArtist(meta->Artist);
+		auto album = artist? _library->GetAlbum(artist, meta->Album): nullptr;
+		auto trackId = _library->GetTrackId(album, meta->Title, meta->Track);
+		if (trackId == ObjectId())
+		{
+			error("not on device, import it first: ", meta->Artist, " / ", meta->Album, " / ", meta->Title);
+			return;
+		}
+
+		auto playlist = _library->CreatePlaylist(name);
+		_library->AddToPlaylist(playlist, trackId);
+		print("added ", meta->Title, " to ", name);
+	}
+
 	void Session::ZuneImport(const LocalPath & path)
 	{
 		ZuneInit();
@@ -1187,11 +1263,13 @@ namespace cli
 		//	The Qt import path checks this before creating a track; the CLI did
 		//	not, so re-importing a track duplicated it on the device instead of
 		//	skipping it.
-		if (_library->HasTrack(album, meta->Title, meta->Track))
+		auto existingId = _library->GetTrackId(album, meta->Title, meta->Track);
+		if (existingId != ObjectId())
 		{
 			//	The path is included so a caller importing a batch can tell which
-			//	file was skipped; the title alone is ambiguous.
-			print("skipping ", path, ": ", meta->Title, " already on device");
+			//	file was skipped; the title alone is ambiguous. The object id lets
+			//	it reference the track later, e.g. when building a playlist.
+			print("skipping ", path, ": ", meta->Title, " already on device, id ", existingId.Id);
 			return;
 		}
 
@@ -1206,6 +1284,7 @@ namespace cli
 			_library->AddCover(album, meta->Picture.Data);
 
 		_library->AddTrack(album, songId);
+		print("imported ", path, ": ", meta->Title, ", id ", songId.Id.Id);
 	}
 
 

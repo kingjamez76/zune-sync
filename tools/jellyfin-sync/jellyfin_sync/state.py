@@ -48,13 +48,30 @@ class State:
     def has(self, track_id: str) -> bool:
         return track_id in self.tracks
 
-    def record(self, track_id: str, description: str, filename: str, source: str) -> None:
-        self.tracks[track_id] = {
+    def record(
+        self,
+        track_id: str,
+        description: str,
+        filename: str,
+        source: str,
+        object_id: int | None = None,
+    ) -> None:
+        entry = {
             "description": description,
             "filename": filename,
             "metadata_source": source,
             "uploaded": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
+        # The device object id is what playlists reference, so keeping it here
+        # means playlists can be rebuilt without re-downloading anything.
+        if object_id is not None:
+            entry["object_id"] = object_id
+        elif track_id in self.tracks and "object_id" in self.tracks[track_id]:
+            entry["object_id"] = self.tracks[track_id]["object_id"]
+        self.tracks[track_id] = entry
+
+    def object_id(self, track_id: str) -> int | None:
+        return self.tracks.get(track_id, {}).get("object_id")
 
     def record_playlist(self, name: str, track_ids: list[str]) -> None:
         """Kept for the device-side playlist support that isn't built yet."""

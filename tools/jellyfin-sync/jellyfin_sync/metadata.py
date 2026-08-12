@@ -20,7 +20,7 @@ from mutagen.id3 import APIC, ID3, ID3NoHeaderError
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4, MP4Cover
 
-from .jellyfin import Track
+from .jellyfin import Track  # noqa: F401 - re-exported for callers
 
 log = logging.getLogger(__name__)
 
@@ -112,11 +112,21 @@ class MusicBrainzResolver:
             log.debug("musicbrainz search failed for %s: %s", track.describe(), exc)
             return None, "none"
 
-        for recording in result.get("recording-list", []):
-            # search scores are strings 0-100; be conservative about accepting a text match
-            if int(recording.get("ext:score", 0)) >= 90:
-                return recording["id"], "search"
-        return None, "none"
+        # Search scores are strings 0-100; be conservative about accepting a text
+        # match. Among equally-scored candidates the API's ordering is not
+        # stable, so pick by (highest score, lowest id) rather than "first
+        # returned" — otherwise the same track resolves to a different recording
+        # on a re-sync, which changes its track number and makes the device
+        # treat it as new.
+        candidates = [
+            (int(r.get("ext:score", 0)), r["id"])
+            for r in result.get("recording-list", [])
+            if int(r.get("ext:score", 0)) >= 90 and r.get("id")
+        ]
+        if not candidates:
+            return None, "none"
+        best = min(candidates, key=lambda c: (-c[0], c[1]))
+        return best[1], "search"
 
     def resolve(self, track: Track, path: Path) -> TagSet:
         """Return canonical tags, falling back to Jellyfin's metadata on any miss."""
@@ -173,9 +183,15 @@ class MusicBrainzResolver:
         # Otherwise take the earliest release rather than whatever MusicBrainz
         # happens to list first — that is routinely a much later reissue, which
         # is how a 2010 single ends up tagged 2024.
-        def sort_key(release: dict) -> str:
+        #
+        # The id is part of the key so that releases sharing a date (or having
+        # no date at all) break the tie the same way every run. Without it the
+        # winner depends on API response order, and the same track resolves to
+        # a different release — and therefore a different title and track
+        # number — on a re-sync, which the device then sees as a new track.
+        def sort_key(release: dict) -> tuple[str, str]:
             date = release.get("date") or ""
-            return date if len(date) >= 4 else "9999"
+            return (date if len(date) >= 4 else "9999", release.get("id") or "")
 
         return min(releases, key=sort_key)
 

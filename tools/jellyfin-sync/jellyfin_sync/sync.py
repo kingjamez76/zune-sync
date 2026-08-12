@@ -167,7 +167,9 @@ class Syncer:
         if not pending:
             log.info("device is up to date")
             self._record_playlists(tracks)
-            return 0
+            if self.dry_run or prepare_only:
+                return 0
+            return self.sync_playlists(tracks)
 
         if self.dry_run:
             log.info("dry run — would sync:")
@@ -210,7 +212,11 @@ class Syncer:
         for path in uploaded + skipped:
             item = by_path[path]
             self.state.record(
-                item.track.id, item.track.describe(), path.name, item.tags.source
+                item.track.id,
+                item.track.describe(),
+                path.name,
+                item.tags.source,
+                object_id=self.device.object_ids.get(path),
             )
         for path in skipped:
             log.info("  already on device: %s", by_path[path].track.describe())
@@ -219,6 +225,7 @@ class Syncer:
 
         self._record_playlists(tracks)
         self.state.save()
+        self.sync_playlists(tracks)
 
         if not cfg.sync.keep_staged:
             for path in uploaded + skipped:
@@ -231,6 +238,41 @@ class Syncer:
             len(failed),
         )
         return 0 if not failed else 1
+
+    def sync_playlists(self, tracks: dict[str, Track]) -> int:
+        """Rebuild the device's playlists from Jellyfin playlist membership.
+
+        Works off object ids recorded in state, so it needs neither the audio
+        files nor a fresh download — only tracks already on the device.
+        """
+        membership: dict[str, list[int]] = {}
+        missing: dict[str, int] = {}
+        for track in tracks.values():
+            for name in track.playlists:
+                oid = self.state.object_id(track.id)
+                if oid is None:
+                    missing[name] = missing.get(name, 0) + 1
+                    continue
+                membership.setdefault(name, []).append(oid)
+
+        if not membership:
+            log.info("no playlist membership to sync")
+            return 0
+
+        log.info("syncing %d playlist(s) to the device", len(membership))
+        for name, ids in membership.items():
+            gap = missing.get(name, 0)
+            log.info(
+                "  %-32s %d track(s)%s",
+                name,
+                len(ids),
+                f" ({gap} not on device, omitted)" if gap else "",
+            )
+
+        errors = self.device.build_playlists(membership)
+        for name, error in errors.items():
+            log.error("  playlist %r failed: %s", name, error)
+        return 1 if errors else 0
 
     def _record_playlists(self, tracks: dict[str, Track]) -> None:
         """Remember playlist membership for on-device playlist support later."""
