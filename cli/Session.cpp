@@ -176,6 +176,8 @@ namespace cli
 			make_function([this](const Path &path) -> void { ListProperties(path); }));
 		AddCommand("device-properties", "shows device's MTP properties",
 			make_function([this]() -> void { ListDeviceProperties(); }));
+		AddCommand("device-serial", "prints the device's serial number and nothing else",
+			make_function([this]() -> void { mtp::print(_gdi.SerialNumber); }));
 		AddCommand("device-info", "displays device's information",
 			make_function([this]() -> void { DisplayDeviceInfo(); }));
 		AddCommand("storage-info", "<storage-id> displays storage information",

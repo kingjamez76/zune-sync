@@ -12,7 +12,7 @@ from .config import Config
 from .device import Zune, safe_filename
 from .jellyfin import Jellyfin, JellyfinError, Track
 from .metadata import MusicBrainzResolver, TagSet, write_tags
-from .state import State
+from .state import UNKNOWN_DEVICE, State
 
 log = logging.getLogger(__name__)
 
@@ -185,6 +185,13 @@ class Syncer:
         formats.require_tools()
         if not self.dry_run and not prepare_only:
             self.device.require()
+
+        # State is per-device: which tracks are present, and what object ids
+        # they have, are claims about one specific Zune.
+        if not self.dry_run and not prepare_only:
+            self.state.select_device(self.device.serial())
+        else:
+            self.state.select_device(UNKNOWN_DEVICE)
 
         tracks = self.collect()
         if not tracks:

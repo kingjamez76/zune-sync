@@ -81,6 +81,20 @@ class Zune:
             [cli, *commands], capture_output=True, text=True, timeout=timeout
         )
 
+    def serial(self) -> str:
+        """The device's serial number — the key state is stored under."""
+        result = self._run(["device-serial"], timeout=120)
+        if result.returncode != 0:
+            raise DeviceError(
+                f"could not read the device serial (is it connected?): "
+                f"{result.stderr.strip()[:300]}"
+            )
+        # The session prints a "selected storage ..." line first; the serial is last.
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if not lines:
+            raise DeviceError("device reported no serial number")
+        return lines[-1]
+
     def device_info(self) -> str:
         """Raw `device-info` output — the authority on what this device supports."""
         result = self._run(["device-info"], timeout=120)
